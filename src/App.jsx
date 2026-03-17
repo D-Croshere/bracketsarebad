@@ -182,19 +182,17 @@ const parseIncome = s => {
 
 const ChartTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
-  const d = payload[0]?.payload;
-  if (!d) return null;
-  const userRate = d.user;
-  const currentRate = d.current;
-  const tax = d.income * userRate / 100;
+  // Ghost line uses a separate dataset — find the user curve entry specifically
+  const userEntry = payload.find(p => p.dataKey === 'user');
+  if (!userEntry) return null;
+  const { income, user: userRate } = userEntry.payload;
+  if (userRate == null) return null;
+  const tax = income * userRate / 100;
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-lg text-xs min-w-[140px]">
-      <p className="font-semibold text-gray-900 mb-1">{fmtIncome(d.income)}</p>
+      <p className="font-semibold text-gray-900 mb-1">{fmtIncome(income)}</p>
       <p className="text-blue-600">Your curve: {userRate.toFixed(1)}%</p>
       <p className="text-blue-600">Tax owed: {fmtDollar(tax)}</p>
-      {currentRate != null && (
-        <p className="text-gray-400 mt-1">Current law: {currentRate.toFixed(1)}%</p>
-      )}
     </div>
   );
 };
@@ -322,7 +320,7 @@ export default function App() {
                   tick={{ fontSize: 10, fill: '#9ca3af' }}
                   width={40}
                 />
-                <Tooltip content={<ChartTooltip />} />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#e5e7eb', strokeWidth: 1 }} />
 
                 {/* Current law ghost — step function */}
                 <Line
