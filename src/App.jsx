@@ -68,6 +68,17 @@ const currentLawRate = income => {
   return tax / income;
 };
 
+const marginalRate = income => {
+  const taxable = income - STD_DEDUCTION;
+  if (taxable <= 0) return 0;
+  let b = BRACKETS_2024[0];
+  for (const bracket of BRACKETS_2024) {
+    if (taxable >= bracket.floor) b = bracket;
+    else break;
+  }
+  return b.rate;
+};
+
 const calcRevenue = (R_max, k, I_mid) =>
   IRS_DATA.reduce((sum, c) => {
     const avg = c.total_agi / c.returns;
@@ -126,6 +137,19 @@ const CL_SMOOTH_DATA = Array.from({ length: 151 }, (_, i) => {
   return { income, current: currentLawRate(income) * 100 };
 });
 
+// Step function: marginal bracket rate by AGI (AGI boundary = taxable floor + std deduction)
+const CL_STEP_DATA = [
+  { income: 10_000,     marginal: 0  },
+  { income: 14_600,     marginal: 10 },  // std deduction exhausted, 10% bracket starts
+  { income: 26_200,     marginal: 12 },
+  { income: 61_750,     marginal: 22 },
+  { income: 115_125,    marginal: 24 },
+  { income: 206_550,    marginal: 32 },
+  { income: 258_325,    marginal: 35 },
+  { income: 623_950,    marginal: 37 },
+  { income: 10_000_000, marginal: 37 },
+];
+
 const makeChartData = (R_max, k, I_mid) =>
   Array.from({ length: 151 }, (_, i) => {
     const income = Math.pow(10, LOG_MIN + (i / 150) * (LOG_MAX - LOG_MIN));
@@ -173,17 +197,23 @@ const parseIncome = s => {
 
 const ChartTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
-  // Ghost line uses a separate dataset — find the user curve entry specifically
+  // Ghost lines use separate datasets — find the user curve entry specifically
   const userEntry = payload.find(p => p.dataKey === 'user');
   if (!userEntry) return null;
   const { income, user: userRate } = userEntry.payload;
   if (userRate == null) return null;
   const tax = income * userRate / 100;
+  const clEffective = currentLawRate(income) * 100;
+  const clMarginal = marginalRate(income) * 100;
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-lg text-xs min-w-[140px]">
+    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-lg text-xs min-w-[170px]">
       <p className="font-semibold text-gray-900 mb-1">{fmtIncome(income)}</p>
       <p className="text-blue-600">Your curve: {userRate.toFixed(1)}%</p>
       <p className="text-blue-600">Tax owed: {fmtDollar(tax)}</p>
+      <div className="border-t border-gray-100 mt-1.5 pt-1.5 space-y-0.5">
+        <p className="text-gray-500">Effective rate: {clEffective.toFixed(1)}%</p>
+        <p className="text-gray-500">Marginal bracket: {clMarginal.toFixed(0)}%</p>
+      </div>
     </div>
   );
 };
@@ -313,7 +343,20 @@ export default function App() {
                 />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#e5e7eb', strokeWidth: 1 }} />
 
-                {/* Current law ghost — smooth effective rate from actual 2024 brackets */}
+                {/* Current law — marginal bracket rates (step function) */}
+                <Line
+                  data={CL_STEP_DATA}
+                  dataKey="marginal"
+                  type="stepAfter"
+                  stroke="#e5e7eb"
+                  strokeWidth={1}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                  name="Marginal rate"
+                />
+
+                {/* Current law — smooth effective rate from actual 2024 brackets */}
                 <Line
                   data={CL_SMOOTH_DATA}
                   dataKey="current"
@@ -323,7 +366,7 @@ export default function App() {
                   dot={false}
                   activeDot={false}
                   isAnimationActive={false}
-                  name="Current law"
+                  name="Effective rate"
                 />
 
                 {/* Bracket boundary tick marks */}
@@ -341,10 +384,6 @@ export default function App() {
                   name="Your curve"
                 />
 
-                {/* Federal poverty lines */}
-                <ReferenceLine x={15060}  stroke="#e5e7eb" strokeWidth={1} label={{ value: 'FPL',   position: 'insideTopRight', fontSize: 9, fill: '#9ca3af' }} />
-                <ReferenceLine x={30120}  stroke="#e5e7eb" strokeWidth={1} label={{ value: '2×FPL', position: 'insideTopRight', fontSize: 9, fill: '#9ca3af' }} />
-
                 {/* Callout dots */}
                 {CALLOUT_INCOMES.map(inc => (
                   <ReferenceDot
@@ -361,18 +400,73 @@ export default function App() {
             </ResponsiveContainer>
 
             {/* Legend */}
-            <div className="flex items-center gap-5 mt-3 text-xs text-gray-400">
+            <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-gray-400">
               <span className="flex items-center gap-1.5">
                 <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#2563eb" strokeWidth="2.5" /></svg>
                 Your curve
               </span>
               <span className="flex items-center gap-1.5">
                 <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="5 4" /></svg>
-                Current law
+                Effective rate (current law)
               </span>
-              <span className="flex items-center gap-1.5 text-gray-400">
+              <span className="flex items-center gap-1.5">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#e5e7eb" strokeWidth="1" /></svg>
+                Marginal brackets
+              </span>
+              <span className="text-gray-400">
                 Dots at $50k, $150k, $500k — hover for details
               </span>
+            </div>
+
+            {/* Income input */}
+            <div className="border-t border-gray-100 mt-4 pt-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="text-sm text-gray-600">What's your income?</label>
+                <input
+                  type="text"
+                  value={incomeStr}
+                  onChange={e => {
+                    const digits = e.target.value.replace(/[^\d]/g, '');
+                    setIncomeStr(digits ? Number(digits).toLocaleString() : '');
+                  }}
+                  placeholder="75,000"
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Nothing is stored.</p>
+
+              {/* Personal breakdown */}
+              {personalIncome != null && (
+                <div className="mt-3 p-4 bg-gray-50 rounded-xl">
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-0.5">Your curve</p>
+                      <p className="text-xl font-bold text-blue-600">
+                        {(personalUserRate * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-400">effective rate</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {fmtDollar(personalIncome * personalUserRate)} owed
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400 mb-0.5">Current law</p>
+                      <p className="text-xl font-bold text-gray-700">
+                        {(personalCurrentRate * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-400">effective rate</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {fmtDollar(personalIncome * personalCurrentRate)} owed
+                      </p>
+                    </div>
+                  </div>
+                  <p className={`text-sm font-semibold ${personalDiff > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {personalDiff > 0
+                      ? `You save ${personalDiff.toFixed(1)} percentage points under this curve.`
+                      : `You pay ${(-personalDiff).toFixed(1)} percentage points more under this curve.`}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -521,57 +615,9 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── Income input + share card ── */}
+        {/* ── Share card ── */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-
-          {/* Income input */}
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="text-sm text-gray-600">What's your income?</label>
-            <input
-              type="text"
-              value={incomeStr}
-              onChange={e => setIncomeStr(e.target.value)}
-              placeholder="$75,000"
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <p className="text-xs text-gray-400 mt-1">Nothing is stored. Put whatever you want in here.</p>
-
-          {/* Personal breakdown (shown when income entered) */}
-          {personalIncome != null && (
-            <div className="mt-4 p-4 bg-gray-50 rounded-xl">
-              <div className="grid grid-cols-2 gap-4 mb-3">
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Your curve</p>
-                  <p className="text-xl font-bold text-blue-600">
-                    {(personalUserRate * 100).toFixed(1)}%
-                  </p>
-                  <p className="text-xs text-gray-400">effective rate</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {fmtDollar(personalIncome * personalUserRate)} owed
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Current law</p>
-                  <p className="text-xl font-bold text-gray-700">
-                    {(personalCurrentRate * 100).toFixed(1)}%
-                  </p>
-                  <p className="text-xs text-gray-400">effective rate</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {fmtDollar(personalIncome * personalCurrentRate)} owed
-                  </p>
-                </div>
-              </div>
-              <p className={`text-sm font-semibold ${personalDiff > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                {personalDiff > 0
-                  ? `You save ${personalDiff.toFixed(1)} percentage points under this curve.`
-                  : `You pay ${(-personalDiff).toFixed(1)} percentage points more under this curve.`}
-              </p>
-            </div>
-          )}
-
-          {/* Share card */}
-          <div className="mt-5 border border-gray-200 rounded-xl p-4">
+          <div className="border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-400 mb-2 font-medium">Share card</p>
             <pre className="text-sm font-mono text-gray-800 whitespace-pre-wrap mb-3 leading-relaxed">
               {shareText}
