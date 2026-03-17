@@ -102,22 +102,12 @@ const fmtRevDelta = n => {
   return `${sign}$${(abs / 1e6).toFixed(0)}M`;
 };
 
-// ─── Current law step-function dataset (for ghost curve) ─────────────────────
-//
-// 2024 federal brackets, single filer, $14,600 standard deduction.
-// Each income is the AGI at which you enter that bracket.
-// Effective rate shown = cumulative tax at that boundary / AGI.
-// stepAfter: rate holds flat until the next boundary.
-const CL_STEP_DATA = [
-  { income:      10000, current:  0.0 },  // left edge / below standard deduction
-  { income:      26200, current:  4.4 },  // enter 12%  ($26,200 = $11,600 taxable top + $14,600 std)
-  { income:      61750, current:  8.8 },  // enter 22%
-  { income:     115125, current: 14.9 },  // enter 24%
-  { income:     206550, current: 18.9 },  // enter 32%
-  { income:     258325, current: 21.5 },  // enter 35%
-  { income:     623950, current: 29.4 },  // enter 37%
-  { income:   10000000, current: 36.5 },  // right-edge anchor (~37% asymptote)
-];
+// ─── Current law ghost curve ──────────────────────────────────────────────────
+// Smooth effective rate from the actual 2024 bracket formula.
+// Generated after LOG_MIN/LOG_MAX are defined (see below).
+
+// AGI at which each bracket boundary is crossed (for vertical tick marks)
+const BRACKET_BOUNDARIES = [26200, 61750, 115125, 206550, 258325, 623950];
 
 // ─── Chart data ───────────────────────────────────────────────────────────────
 
@@ -129,6 +119,12 @@ const fmtXTick = v => {
   if (v >= 1e6) return `$${v / 1e6}M`;
   return `$${v / 1e3}k`;
 };
+
+// Smooth current law effective rate curve — same 151-point log spacing as user curve
+const CL_SMOOTH_DATA = Array.from({ length: 151 }, (_, i) => {
+  const income = Math.pow(10, LOG_MIN + (i / 150) * (LOG_MAX - LOG_MIN));
+  return { income, current: currentLawRate(income) * 100 };
+});
 
 const makeChartData = (R_max, k, I_mid) =>
   Array.from({ length: 151 }, (_, i) => {
@@ -317,19 +313,23 @@ export default function App() {
                 />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#e5e7eb', strokeWidth: 1 }} />
 
-                {/* Current law ghost — step function */}
+                {/* Current law ghost — smooth effective rate from actual 2024 brackets */}
                 <Line
-                  data={CL_STEP_DATA}
+                  data={CL_SMOOTH_DATA}
                   dataKey="current"
                   stroke="#d1d5db"
                   strokeWidth={1.5}
                   strokeDasharray="5 4"
-                  type="stepAfter"
                   dot={false}
                   activeDot={false}
                   isAnimationActive={false}
                   name="Current law"
                 />
+
+                {/* Bracket boundary tick marks */}
+                {BRACKET_BOUNDARIES.map(x => (
+                  <ReferenceLine key={x} x={x} stroke="#e5e7eb" strokeWidth={1} strokeDasharray="2 4" />
+                ))}
 
                 {/* User curve */}
                 <Line
