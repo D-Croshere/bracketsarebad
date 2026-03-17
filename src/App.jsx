@@ -23,20 +23,17 @@ const IRS_DATA = [
   { label: '$1M+',        min: 1000000, max: null,    returns: 900000,   total_agi: 3100e9 },
 ];
 
-// Current law effective rates (single filer, 2024, approximate)
-const CL_POINTS = [
-  [15000,    0.020],
-  [30000,    0.085],
-  [50000,    0.132],
-  [75000,    0.168],
-  [100000,   0.187],
-  [150000,   0.210],
-  [200000,   0.225],
-  [400000,   0.282],
-  [600000,   0.310],
-  [1000000,  0.338],
-  [5000000,  0.365],
-  [10000000, 0.370],
+// 2024 federal tax brackets — single filer, $14,600 standard deduction
+// base = cumulative tax owed at the bottom of this bracket (taxable income)
+const STD_DEDUCTION = 14600;
+const BRACKETS_2024 = [
+  { floor:      0, rate: 0.10, base:        0 },
+  { floor:  11600, rate: 0.12, base:     1160 },
+  { floor:  47150, rate: 0.22, base:     5426 },
+  { floor: 100525, rate: 0.24, base:  17168.5 },
+  { floor: 191950, rate: 0.32, base:  39110.5 },
+  { floor: 243725, rate: 0.35, base:  55678.5 },
+  { floor: 609350, rate: 0.37, base: 183647.25 },
 ];
 
 const PRESETS = [
@@ -60,17 +57,15 @@ const taxOwed = (I, R_max, k, I_mid) =>
   effectiveRate(I, R_max, k, I_mid) * I;
 
 const currentLawRate = income => {
-  if (income <= CL_POINTS[0][0]) return CL_POINTS[0][1];
-  if (income >= CL_POINTS[CL_POINTS.length - 1][0]) return CL_POINTS[CL_POINTS.length - 1][1];
-  for (let i = 0; i < CL_POINTS.length - 1; i++) {
-    const [x0, y0] = CL_POINTS[i];
-    const [x1, y1] = CL_POINTS[i + 1];
-    if (income >= x0 && income <= x1) {
-      const t = (income - x0) / (x1 - x0);
-      return y0 + t * (y1 - y0);
-    }
+  const taxable = Math.max(0, income - STD_DEDUCTION);
+  if (taxable === 0) return 0;
+  let b = BRACKETS_2024[0];
+  for (const bracket of BRACKETS_2024) {
+    if (taxable >= bracket.floor) b = bracket;
+    else break;
   }
-  return 0;
+  const tax = b.base + (taxable - b.floor) * b.rate;
+  return tax / income;
 };
 
 const calcRevenue = (R_max, k, I_mid) =>
