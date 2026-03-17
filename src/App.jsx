@@ -107,9 +107,26 @@ const fmtRevDelta = n => {
   return `${sign}$${(abs / 1e6).toFixed(0)}M`;
 };
 
+// ─── Current law step-function dataset (for ghost curve) ─────────────────────
+//
+// 2024 federal brackets, single filer, $14,600 standard deduction.
+// Each income is the AGI at which you enter that bracket.
+// Effective rate shown = cumulative tax at that boundary / AGI.
+// stepAfter: rate holds flat until the next boundary.
+const CL_STEP_DATA = [
+  { income:      10000, current:  0.0 },  // left edge / below standard deduction
+  { income:      26200, current:  4.4 },  // enter 12%  ($26,200 = $11,600 taxable top + $14,600 std)
+  { income:      61750, current:  8.8 },  // enter 22%
+  { income:     115125, current: 14.9 },  // enter 24%
+  { income:     206550, current: 18.9 },  // enter 32%
+  { income:     258325, current: 21.5 },  // enter 35%
+  { income:     623950, current: 29.4 },  // enter 37%
+  { income:   10000000, current: 36.5 },  // right-edge anchor (~37% asymptote)
+];
+
 // ─── Chart data ───────────────────────────────────────────────────────────────
 
-const LOG_MIN = Math.log10(1000);
+const LOG_MIN = Math.log10(10_000);
 const LOG_MAX = Math.log10(10_000_000);
 const X_TICKS = [10000, 50000, 100000, 250000, 1_000_000, 10_000_000];
 
@@ -124,7 +141,6 @@ const makeChartData = (R_max, k, I_mid) =>
     return {
       income,
       user: effectiveRate(income, R_max, k, I_mid) * 100,
-      current: currentLawRate(income) * 100,
     };
   });
 
@@ -293,7 +309,7 @@ export default function App() {
                   dataKey="income"
                   scale="log"
                   type="number"
-                  domain={[1000, 10_000_000]}
+                  domain={[10_000, 10_000_000]}
                   ticks={X_TICKS}
                   tickFormatter={fmtXTick}
                   tick={{ fontSize: 10, fill: '#9ca3af' }}
@@ -308,12 +324,14 @@ export default function App() {
                 />
                 <Tooltip content={<ChartTooltip />} />
 
-                {/* Current law ghost */}
+                {/* Current law ghost — step function */}
                 <Line
+                  data={CL_STEP_DATA}
                   dataKey="current"
                   stroke="#d1d5db"
                   strokeWidth={1.5}
                   strokeDasharray="5 4"
+                  type="stepAfter"
                   dot={false}
                   activeDot={false}
                   isAnimationActive={false}
@@ -329,6 +347,10 @@ export default function App() {
                   isAnimationActive={false}
                   name="Your curve"
                 />
+
+                {/* Federal poverty lines */}
+                <ReferenceLine x={15060}  stroke="#e5e7eb" strokeWidth={1} label={{ value: 'FPL',   position: 'insideTopRight', fontSize: 9, fill: '#9ca3af' }} />
+                <ReferenceLine x={30120}  stroke="#e5e7eb" strokeWidth={1} label={{ value: '2×FPL', position: 'insideTopRight', fontSize: 9, fill: '#9ca3af' }} />
 
                 {/* Callout dots */}
                 {CALLOUT_INCOMES.map(inc => (
